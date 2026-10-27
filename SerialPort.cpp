@@ -75,6 +75,11 @@ const uint8_t MMDVM_FM_STATUS    = 0x66U;
 const uint8_t MMDVM_FM_EOT       = 0x67U;
 const uint8_t MMDVM_FM_RSSI      = 0x68U;
 
+// Nexus25 extensions (see NEXUS25.md)
+const uint8_t NEXUS25_P25_CC_MODE   = 0xA0U;
+const uint8_t NEXUS25_P25_CC_IDLE   = 0xA1U;
+const uint8_t NEXUS25_P25_CC_STATUS = 0xA2U;
+
 const uint8_t MMDVM_ACK          = 0x70U;
 const uint8_t MMDVM_NAK          = 0x7FU;
 
@@ -698,6 +703,11 @@ uint8_t CSerialPort::setMode(const uint8_t* data, uint16_t length)
 
 void CSerialPort::setMode(MMDVM_STATE modemState)
 {
+#if defined(MODE_P25)
+  if (modemState != STATE_P25)
+    p25TX.setCCMode(false);
+#endif
+
   switch (modemState) {
     case STATE_DSTAR:
       DEBUG1("Mode set to D-Star");
@@ -1186,6 +1196,49 @@ void CSerialPort::processMessage(uint8_t type, const uint8_t* buffer, uint16_t l
       } else {
         DEBUG2("Received invalid P25 LDU", err);
         sendNAK(type, err);
+      }
+      break;
+
+    case NEXUS25_P25_CC_IDLE:
+      if (m_p25Enable && (m_modemState == STATE_IDLE || m_modemState == STATE_P25))
+        err = p25TX.setCCIdle(buffer, length);
+      if (err == 0U)
+        sendACK(type);
+      else
+        sendNAK(type, err);
+      break;
+
+    case NEXUS25_P25_CC_MODE:
+      if (length < 1U) {
+        err = 4U;
+      } else if (m_p25Enable && (m_modemState == STATE_IDLE || m_modemState == STATE_P25)) {
+        bool enable = (buffer[0U] & 0x01U) == 0x01U;
+        if (enable && !m_duplex) {
+          err = 3U;
+        } else {
+          p25TX.setCCMode(enable);
+          if (enable && m_modemState == STATE_IDLE)
+            setMode(STATE_P25);
+          err = 0U;
+        }
+      }
+      if (err == 0U)
+        sendACK(type);
+      else
+        sendNAK(type, err);
+      break;
+
+    case NEXUS25_P25_CC_STATUS: {
+        uint16_t count = p25TX.getCCIdleCount();
+        uint8_t reply[7U];
+        reply[0U] = MMDVM_FRAME_START;
+        reply[1U] = 7U;
+        reply[2U] = NEXUS25_P25_CC_STATUS;
+        reply[3U] = p25TX.getCCMode() ? 0x01U : 0x00U;
+        reply[4U] = p25TX.getCCIdleLength();
+        reply[5U] = uint8_t(count >> 8);
+        reply[6U] = uint8_t(count);
+        writeInt(1U, reply, 7U);
       }
       break;
 #endif

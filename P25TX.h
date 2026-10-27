@@ -24,6 +24,7 @@
 #define  P25TX_H
 
 #include "RingBuffer.h"
+#include "P25Defines.h"
 
 class CP25TX {
 public:
@@ -39,6 +40,13 @@ public:
 
   void setParams(uint8_t txHang);
 
+  // Nexus25: continuous control-channel transmit
+  uint8_t  setCCIdle(const uint8_t* data, uint16_t length);
+  void     setCCMode(bool enable);
+  bool     getCCMode() const;
+  uint8_t  getCCIdleLength() const;
+  uint16_t getCCIdleCount() const;
+
 private:
   CRingBuffer<uint8_t>                        m_buffer;
   arm_fir_interpolate_instance_q15 m_modFilter;
@@ -51,6 +59,10 @@ private:
   uint16_t                         m_txDelay;
   uint32_t                         m_txHang;
   uint32_t                         m_txCount;
+  bool                             m_ccMode;
+  uint8_t                          m_ccIdle[P25_LDU_FRAME_LENGTH_BYTES];
+  uint8_t                          m_ccIdleLen;
+  uint16_t                         m_ccIdleCount;
 
   void writeByte(uint8_t c);
   void writeSilence();
