@@ -1,6 +1,7 @@
 /*
  *   Copyright (C) 2016,2017,2020 by Jonathan Naylor G4KLX
  *   Copyright (C) 2017 by Andy Uribe CA6JAU
+ *   Copyright (C) 2026 by Public Safety Solutions (Nexus25 changes)
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -56,7 +57,11 @@ m_poLen(0U),
 m_poPtr(0U),
 m_txDelay(240U),      // 200ms
 m_txHang(6000U),      // 5s
-m_txCount(0U)
+m_txCount(0U),
+m_ccMode(false),
+m_ccIdle(),
+m_ccIdleLen(0U),
+m_ccIdleCount(0U)
 {
   ::memset(m_modState, 0x00U, 16U * sizeof(q15_t));
   ::memset(m_lpState,  0x00U, 60U * sizeof(q15_t));
@@ -73,11 +78,13 @@ m_txCount(0U)
 
 void CP25TX::process()
 {
-  if (m_poLen == 0U && m_buffer.getData() > 0U) {
+  bool ccIdle = m_ccMode && m_ccIdleLen > 0U;
+
+  if (m_poLen == 0U && (m_buffer.getData() > 0U || ccIdle)) {
     if (!m_tx) {
       for (uint16_t i = 0U; i < m_txDelay; i++)
         m_poBuffer[m_poLen++] = P25_START_SYNC;
-    } else {
+    } else if (m_buffer.getData() > 0U) {
       uint8_t length;
       m_buffer.get(length);
       for (uint8_t i = 0U; i < length; i++) {
@@ -85,6 +92,13 @@ void CP25TX::process()
         m_buffer.get(c);
         m_poBuffer[m_poLen++] = c;
       }
+    } else {
+      // Control channel with nothing queued: repeat the host's idle frame
+      // so the carrier and frame sync never drop.
+      ::memcpy(m_poBuffer, m_ccIdle, m_ccIdleLen);
+      m_poLen = m_ccIdleLen;
+      if (m_ccIdleCount < 0xFFFFU)
+        m_ccIdleCount++;
     }
 
     m_poPtr = 0U;
@@ -200,6 +214,42 @@ uint8_t CP25TX::getSpace() const
 void CP25TX::setParams(uint8_t txHang)
 {
   m_txHang = txHang * 1200U;
+}
+
+uint8_t CP25TX::setCCIdle(const uint8_t* data, uint16_t length)
+{
+  if (length < (P25_TSDU_FRAME_LENGTH_BYTES + 1U))
+    return 4U;
+
+  if (length > (P25_LDU_FRAME_LENGTH_BYTES + 1U))
+    return 4U;
+
+  ::memcpy(m_ccIdle, data + 1U, length - 1U);
+  m_ccIdleLen = uint8_t(length - 1U);
+
+  return 0U;
+}
+
+void CP25TX::setCCMode(bool enable)
+{
+  m_ccMode = enable;
+  if (!enable)
+    m_ccIdleCount = 0U;
+}
+
+bool CP25TX::getCCMode() const
+{
+  return m_ccMode;
+}
+
+uint8_t CP25TX::getCCIdleLength() const
+{
+  return m_ccIdleLen;
+}
+
+uint16_t CP25TX::getCCIdleCount() const
+{
+  return m_ccIdleCount;
 }
 
 #endif
